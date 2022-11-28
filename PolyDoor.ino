@@ -90,7 +90,7 @@ void loop() {
   getDoorStatus();
   process_rfid();
   process_telegram();
-  process_http_cliemt();
+  process_http_client();
 
   //---COMMANDS--------
   if (cmd != CMD_NOOP) {
@@ -111,12 +111,18 @@ void loop() {
 void reportActivity() {
   urlFinal = "https://script.google.com/macros/s/" + String(GOOGLE_SCRIPT_ID) + "/exec?sheet=rfidlog";
   if (logTrigger == "button")  {
-    urlFinal +=  "&log=button%20pressed";
+    urlFinal +=  "&logline=button%20pressed";
     bot.sendMessage(CHAT_ID_1, "The door was opened by switch");
   }
   else if (logTrigger == "rfid") {
-    urlFinal +=  "&log=rfid%3A%20" + tagID;
+    urlFinal +=  "&logline=Access%20granted%20to%20rfid%3A%20" + tagID;
     bot.sendMessage(CHAT_ID_1, "The door was opened with RFID tag: " + tagID, "");
+  }else if (logTrigger == "alert") {
+    urlFinal +=  "&logline=Access%20denied%20to%20rfid%3A%20" + tagID;
+    bot.sendMessage(CHAT_ID_1, "Access denied to RFID tag: " + tagID, "");
+  }else if (logTrigger == "heartbit") {
+    urlFinal +=  "&logline=heartbit";
+    bot.sendMessage(CHAT_ID_1, "heartbit");
   }
   Serial.print("POST data to spreadsheet:");
   Serial.println(urlFinal);
@@ -208,6 +214,7 @@ void process_rfid() {
     } else {
       Serial.println(" Access Denied!  ");
       bot.sendMessage(CHAT_ID_1, "Unauthorized RFID: " + tagID , "");
+      logTrigger = "alert";
 
     }
   }
@@ -244,7 +251,7 @@ void process_cmd() {
   cmd = CMD_NOOP;
 }
 
-void process_http_cliemt() {
+void process_http_client() {
   WiFiClient client = server.available();  // Listen for incoming clients
   if (client) {                            // If a new client connects,
     currentTime = millis();
@@ -365,37 +372,47 @@ void rfidUpdate(void *para) {
   Serial.print("Task1 running on core ");
   Serial.println(xPortGetCoreID());
   HTTPClient http;
-  urlFinal = "https://script.google.com/macros/s/" + String(GOOGLE_SCRIPT_ID) + "/exec?sheet=rfidlist&cmd=range";
+  urlFinal = "https://script.google.com/macros/s/" + String(GOOGLE_SCRIPT_ID) + "/exec?sheet=rfidlist&range";
+  Serial.println("Getting:");
+  Serial.println(urlFinal);
   http.begin(urlFinal.c_str());
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
   int httpCode = http.GET();
   //Serial.print("HTTP Status Code: ");
   //Serial.println(httpCode);
   String payload1 = String(http.getString());
-  JSONVar myArray = JSON.parse(http.getString().c_str());
+  Serial.println("String value:");
+  Serial.println(payload1);
+  JSONVar myArray = JSON.parse(payload1);
+  JSONVar myRFID = JSON.parse((const char *) myArray["value"]);
 
   http.end();
-
-  if (JSON.typeof(myArray) == "undefined") {
+  
+  logTrigger = "heartbit";
+  if (JSON.typeof(myRFID) == "undefined") {
     Serial.println("Parsing input failed!");
+    Serial.println(JSON.stringify(myRFID));
+    urlFinal = "";
+    rfidinit = false;
+    vTaskDelete(taskhandle_1);
     return;
   }
 
-  Serial.print("JSON.typeof(myArray) = ");
-  Serial.println(JSON.typeof(myArray)); // prints: array
+//  Serial.print("JSON.typeof(myArray) = ");
+//  Serial.println(JSON.typeof(myRFID)); // prints: array
 
-  // myArray.length() can be used to get the length of the array
-  Serial.print("myArray.length() = ");
-  Serial.println(myArray.length());
-  Serial.println();
+  //// myArray.length() can be used to get the length of the array
+//  Serial.print("myRFID.length() = ");
+//  Serial.println(myRFID.length());
+//
+//  Serial.print("JSON.typeof(myRFID[0][0]) = ");
+//  Serial.println(JSON.typeof(myRFID[0][0]));
+  
 
-  Serial.print("JSON.typeof(myArray[0][0]) = ");
-  Serial.println(JSON.typeof(myArray[0][0]));
-
-  int arrLen = myArray.length();
+  int arrLen = myRFID.length();
   for (int i = 0 ; i < arrLen; i++) {
-    *MasterTag[i] =  new String();
-    *MasterTag[i] = String(const char*) myArray[i][0]);
+    //Serial.println( myRFID[i][0]);
+    MasterTag[i] =  new String((const char*) myRFID[i][0]);
     Serial.print("init rfid ");
     Serial.print(i);
     Serial.print(": ");
@@ -413,7 +430,7 @@ void handleNewMessages(int numNewMessages) {
     Serial.println(text);
     String from_name = bot.messages[i].from_name;
     String chat_id = bot.messages[i].chat_id;
-    if ((chat_id != CHAT_ID_1) || (chat_id != CHAT_ID_2)) {
+    if ((chat_id != CHAT_ID_1) && (chat_id != CHAT_ID_2)) {
       bot.sendMessage(chat_id, "Unauthorized user", "");
       continue;
     }
