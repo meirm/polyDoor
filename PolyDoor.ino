@@ -10,12 +10,13 @@
 #include <HTTPClient.h>
 #include <UniversalTelegramBot.h>
 #include <WiFiClientSecure.h>
-
+#include "members.h"
 #include <Arduino_JSON.h>
 
 // Create instances
 MFRC522 mfrc522(SS_PIN, RST_PIN);
 
+Member * MasterTag[MEMBERS] ;  
 bool door_locked = true;
 bool door_closed = false;
 unsigned long door_open = 0;
@@ -52,7 +53,7 @@ uint8_t source = CMD_SOURCE_SERIAL;
 
 void setup() {
   for (int i = 0; i < MEMBERS; i++) {
-    MasterTag[i] = &nullstring;
+    MasterTag[i] = NULL;
   }
   pinMode(PIN_BUTTON, INPUT_PULLUP);
   pinMode(PIN_RELAY, OUTPUT);
@@ -337,9 +338,9 @@ void process_http_client() {
 
 boolean query_access(String tagID) {
   for (int i = 0; i < MEMBERS; i++) {
-    if (*MasterTag[i] == "") return false;
-    Serial.println(String("'") + tagID + "' <=> '" + *MasterTag[i] + "'");
-    if (tagID.equals(*MasterTag[i])) {
+    if (MasterTag[i] == NULL) return false;
+     Serial.println(String("'") + tagID + "' <=> '" + MasterTag[i]->getRFID() + "'");
+    if (tagID.equals(MasterTag[i]->getRFID())) {
       return true;
     }
   }
@@ -410,14 +411,19 @@ void rfidUpdate(void *para) {
   
 
   int arrLen = myRFID.length();
-  for (int i = 0 ; i < arrLen; i++) {
+  for (int i = 1 ; i < arrLen && i < MEMBERS + 1; i++) {
     //Serial.println( myRFID[i][0]);
-    free(MasterTag[i]);
-    MasterTag[i] =  new String((const char*) myRFID[i][0]);
-    Serial.print("init rfid ");
+    if ((2 == 2) ){ //|| (MasterTag[i - 1] == &nullstring ) || (String(*MasterTag[i-1]).equals((String((const char*) myRFID[i][0]))))){
+      ////free(MasterTag[i]);
+      MasterTag[i-1] =  new Member((const char*) myRFID[i][0], (const char*) myRFID[i][1]);
+      Serial.print("init rfid ");
     Serial.print(i);
     Serial.print(": ");
-    Serial.println(*MasterTag[i]);
+    Serial.print(MasterTag[i -1]->getRFID());
+    Serial.print(": ");
+    Serial.println(MasterTag[i -1]->getName());
+    }
+    
   }
   urlFinal = "";
   rfidinit = false;

@@ -55,7 +55,6 @@ SS/SDA (Slave select) <-> 5
 #define TESTPIN2 27
 //GLOBAL VARS
 byte readCard[4];
-String * MasterTag[MEMBERS] ;  
 
 const unsigned long BOT_MTBS = 1000;
 String tagID = "";
