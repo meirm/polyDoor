@@ -412,6 +412,7 @@ void rfidUpdate(void *para) {
   int arrLen = myRFID.length();
   for (int i = 0 ; i < arrLen; i++) {
     //Serial.println( myRFID[i][0]);
+    free(MasterTag[i]);
     MasterTag[i] =  new String((const char*) myRFID[i][0]);
     Serial.print("init rfid ");
     Serial.print(i);
