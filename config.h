@@ -47,7 +47,6 @@ SS/SDA (Slave select) <-> 5
 #define CMD_SOURCE_SERIAL 1
 #define CMD_SOURCE_BUTTON 2
 #define CMD_SOURCE_RFID 3
-#define MEMBERS 20
 #define RFIDUPDATETIME 10 * 60 * 1000
 
 
@@ -58,7 +57,7 @@ byte readCard[4];
 
 const unsigned long BOT_MTBS = 1000;
 String tagID = "";
-
+String tagName = "Nishta";
 boolean getID();
 boolean query_access(String tagID);
 

@@ -10,13 +10,11 @@
 #include <HTTPClient.h>
 #include <UniversalTelegramBot.h>
 #include <WiFiClientSecure.h>
-#include "members.h"
 #include <Arduino_JSON.h>
 
 // Create instances
 MFRC522 mfrc522(SS_PIN, RST_PIN);
 
-Member * MasterTag[MEMBERS] ;  
 bool door_locked = true;
 bool door_closed = false;
 unsigned long door_open = 0;
@@ -52,9 +50,6 @@ String header;  //holds HTTP request
 uint8_t source = CMD_SOURCE_SERIAL;
 
 void setup() {
-  for (int i = 0; i < MEMBERS; i++) {
-    MasterTag[i] = NULL;
-  }
   pinMode(PIN_BUTTON, INPUT_PULLUP);
   pinMode(PIN_RELAY, OUTPUT);
   digitalWrite(PIN_RELAY, LOW);
@@ -99,7 +94,6 @@ void loop() {
   }
 
   closeDoorOnTimeout();
-  updatePermissions();
 
   if (!(logTrigger == "")) {
     reportActivity();
@@ -111,18 +105,17 @@ void loop() {
 
 void reportActivity() {
   urlFinal = "https://script.google.com/macros/s/" + String(GOOGLE_SCRIPT_ID) + "/exec?sheet=rfidlog";
-  if (logTrigger == "button")  {
-    urlFinal +=  "&logline=button%20pressed";
+  if (logTrigger == "button") {
+    urlFinal += "&logline=button%20pressed";
     bot.sendMessage(CHAT_ID_1, "The door was opened by switch");
-  }
-  else if (logTrigger == "rfid") {
-    urlFinal +=  "&logline=Access%20granted%20to%20rfid%3A%20" + tagID;
-    bot.sendMessage(CHAT_ID_1, "The door was opened with RFID tag: " + tagID, "");
-  }else if (logTrigger == "alert") {
-    urlFinal +=  "&logline=Access%20denied%20to%20rfid%3A%20" + tagID;
-    bot.sendMessage(CHAT_ID_1, "Access denied to RFID tag: " + tagID, "");
-  }else if (logTrigger == "heartbit") {
-    urlFinal +=  "&logline=heartbit";
+  } else if (logTrigger == "rfid") {
+    urlFinal += "&logline=Access%20granted%20to%20rfid%3A%20" + tagID + "%20%28" + tagName + "%29";
+    bot.sendMessage(CHAT_ID_1, "The door was opened with RFID tag: " + tagID + "(" + tagName + ")", "");
+  } else if (logTrigger == "alert") {
+    urlFinal += "&logline=Access%20denied%20to%20rfid%3A%20" + tagID + "%20%28" + tagName + "%29";
+    bot.sendMessage(CHAT_ID_1, "Access denied to RFID tag: " + tagID + "(" + tagName + ")", "");
+  } else if (logTrigger == "heartbit") {
+    urlFinal += "&logline=heartbit";
     bot.sendMessage(CHAT_ID_1, "heartbit");
   }
   Serial.print("POST data to spreadsheet:");
@@ -142,13 +135,7 @@ void reportActivity() {
   logTrigger = "";
   urlFinal = "";
 }
-void updatePermissions() {
-  if ((millis() - rfidLastUpdate > RFIDUPDATETIME) && rfidinit == false) {
-    xTaskCreatePinnedToCore(rfidUpdate, "Task1", 20000, NULL, 1, &taskhandle_1, 0);
-    rfidLastUpdate = millis();
-    Serial.println("rfidinit true");
-  }
-}
+
 
 void closeDoorOnTimeout() {
   if (door_locked == false) {
@@ -214,9 +201,8 @@ void process_rfid() {
       }
     } else {
       Serial.println(" Access Denied!  ");
-      bot.sendMessage(CHAT_ID_1, "Unauthorized RFID: " + tagID , "");
+      bot.sendMessage(CHAT_ID_1, "Unauthorized RFID: " + tagID, "");
       logTrigger = "alert";
-
     }
   }
 }
@@ -226,8 +212,7 @@ void process_cmd() {
     case CMD_STATUS:
       if (door_locked == false) {
         Serial.println("Open");
-      }
-      else {
+      } else {
         Serial.println("Closed");
       }
       break;
@@ -337,14 +322,7 @@ void process_http_client() {
 }
 
 boolean query_access(String tagID) {
-  for (int i = 0; i < MEMBERS; i++) {
-    if (MasterTag[i] == NULL) return false;
-     Serial.println(String("'") + tagID + "' <=> '" + MasterTag[i]->getRFID() + "'");
-    if (tagID.equals(MasterTag[i]->getRFID())) {
-      return true;
-    }
-  }
-  return false;
+  return authorize(tagID);
 }
 
 //Read new tag if available
@@ -366,68 +344,6 @@ boolean getID() {
   Serial.println(tagID);
   mfrc522.PICC_HaltA();  // Stop reading
   return true;
-}
-
-void rfidUpdate(void *para) {
-  rfidinit = true;
-  Serial.print("Task1 running on core ");
-  Serial.println(xPortGetCoreID());
-  HTTPClient http;
-  urlFinal = "https://script.google.com/macros/s/" + String(GOOGLE_SCRIPT_ID) + "/exec?sheet=rfidlist&range";
-  Serial.println("Getting:");
-  Serial.println(urlFinal);
-  http.begin(urlFinal.c_str());
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  int httpCode = http.GET();
-  //Serial.print("HTTP Status Code: ");
-  //Serial.println(httpCode);
-  String payload1 = String(http.getString());
-  Serial.println("String value:");
-  Serial.println(payload1);
-  JSONVar myArray = JSON.parse(payload1);
-  JSONVar myRFID = JSON.parse((const char *) myArray["value"]);
-
-  http.end();
-  
-  logTrigger = "heartbit";
-  if (JSON.typeof(myRFID) == "undefined") {
-    Serial.println("Parsing input failed!");
-    Serial.println(JSON.stringify(myRFID));
-    urlFinal = "";
-    rfidinit = false;
-    vTaskDelete(taskhandle_1);
-    return;
-  }
-
-//  Serial.print("JSON.typeof(myArray) = ");
-//  Serial.println(JSON.typeof(myRFID)); // prints: array
-
-  //// myArray.length() can be used to get the length of the array
-//  Serial.print("myRFID.length() = ");
-//  Serial.println(myRFID.length());
-//
-//  Serial.print("JSON.typeof(myRFID[0][0]) = ");
-//  Serial.println(JSON.typeof(myRFID[0][0]));
-  
-
-  int arrLen = myRFID.length();
-  for (int i = 1 ; i < arrLen && i < MEMBERS + 1; i++) {
-    //Serial.println( myRFID[i][0]);
-    if ((2 == 2) ){ //|| (MasterTag[i - 1] == &nullstring ) || (String(*MasterTag[i-1]).equals((String((const char*) myRFID[i][0]))))){
-      ////free(MasterTag[i]);
-      MasterTag[i-1] =  new Member((const char*) myRFID[i][0], (const char*) myRFID[i][1]);
-      Serial.print("init rfid ");
-    Serial.print(i);
-    Serial.print(": ");
-    Serial.print(MasterTag[i -1]->getRFID());
-    Serial.print(": ");
-    Serial.println(MasterTag[i -1]->getName());
-    }
-    
-  }
-  urlFinal = "";
-  rfidinit = false;
-  vTaskDelete(taskhandle_1);
 }
 
 void handleNewMessages(int numNewMessages) {
@@ -466,6 +382,48 @@ void handleNewMessages(int numNewMessages) {
         if (door_closed == true) bot.sendMessage(chat_id, "The door is locked and closed.", "");
         else bot.sendMessage(chat_id, "The door is not closed", "");
       } else bot.sendMessage(chat_id, "The door is unlocked", "");
+    }
+  }
+}
+
+
+bool authorize(String _tagID) {
+  rfidinit = true;
+  Serial.print("Task1 running on core ");
+  Serial.println(xPortGetCoreID());
+  HTTPClient http;
+  urlFinal = "https://script.google.com/macros/s/" + String(GOOGLE_SCRIPT_ID) + "/exec?sheet=rfidlist&authorize&value=" + _tagID;
+  Serial.println("Getting:");
+  Serial.println(urlFinal);
+  http.begin(urlFinal.c_str());
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  int httpCode = http.GET();
+  //Serial.print("HTTP Status Code: ");
+  //Serial.println(httpCode);
+  String payload1 = String(http.getString());
+  Serial.println("String value:");
+  Serial.println(payload1);
+  JSONVar myArray = JSON.parse(payload1);
+  http.end();
+  tagID = _tagID;
+  tagName = "Nishta";
+  logTrigger = "authorization";
+  if (JSON.typeof(myArray["name"]) == "undefined") {
+    Serial.println("Parsing input failed!");
+
+    Serial.println(JSON.stringify(myArray));
+    urlFinal = "";
+    rfidinit = false;
+    vTaskDelete(taskhandle_1);
+    return false;
+  } else {
+    if (String((const char *)myArray["name"]) == "Nishta") {
+      tagName = "Nishta";
+      return false;
+    } else {
+      tagName = (const char *)myArray["name"];
+      if (String((const char *)myArray["authorization"]) == "success") return true;
+      return false;
     }
   }
 }
